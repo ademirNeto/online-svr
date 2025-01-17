@@ -1,0 +1,23 @@
+# Ignorar arquivos específicos do macOS
+.DS_Store
+
+# Ignorar diretórios específicos
+online-svr/.DS_Store
+online_svr.egg-info/
+
+# Ignorar arquivos gerados por Python
+*.pyc
+*.pyo
+__pycache__/
+
+# Ignorar diretórios de build e distribuições
+build/
+dist/
+
+# Ignorar ambientes virtuais
+venv/
+.env/
+
+# Ignorar arquivos de configuração locais
+*.env
+*.log

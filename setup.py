@@ -8,15 +8,16 @@ setup(
     long_description_content_type="text/markdown",
     author="Ademir Neto",
     author_email="ademir.bsn@gmail.com",
-    url="https://github.com/seuusuario/my_library",
+    url="https://github.com/ademirNeto/online-svr",
     packages=find_packages(),
     install_requires=[
-        "psutil",
-        "numpy",
-        "pandas",
-        "scikit-learn"
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "statsmodels",
+    "scipy"
     ],
-    python_requires=">=3.7",
+    python_requires=">=3.9",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
