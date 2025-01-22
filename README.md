@@ -1,16 +1,15 @@
-# My Library
+# Online SVR
 
-Uma biblioteca para realizar experimentos com séries temporais utilizando **SVR**, **Random Walk**, e **métricas de avaliação**. Inclui suporte para pré-processamento de dados, criação de lags, e execução de testes como Diebold-Mariano e métricas específicas para séries temporais.
+A library for conducting experiments with time series using **SVR**. It includes support for data preprocessing, lag creation, and executing tests by prediction time series bt a traditional and online paradigma.
 
-## Recursos Principais
+## Key Features
 
-- **SVR Predict**: Previsões offline utilizando Suporte a Vetores de Regressão.
-- **Random Walk Predict**: Implementação de Random Walk como baseline.
-- **SVR Online**: Aprendizagem incremental com atualização dinâmica do modelo.
-- **Métricas**: Cálculo de **MSE**, **MAPE**, **U de Theil**, **WPOCID** e testes estatísticos como **Diebold-Mariano**.
+- **SVR Predict**: Offline predictions using Support Vector Regression.
+- **SVR Online**: Incremental learning with dynamic model updates.
 
-## Instalação
+## Installation
 
-Para instalar a biblioteca, execute:
+To install the library, run:
 
-pip install online-pso
+```bash
+pip install online-svr

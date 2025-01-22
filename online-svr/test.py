@@ -1,3 +1,10 @@
+import sys
+sys.path.append(r"C:\Users\neton\AppData\Local\Programs\Python\Python311\Lib\site-packages")
+import online_svr
+print("Pacote importado com sucesso!")
+
+
+"""
 from core import PredictionModel
 import pandas as pd
 
@@ -17,3 +24,4 @@ y_true = pd.Series([31.5, 33.2, 34.8])
 
 online_predictions = model.predict_svr_online(trained_model, y_true, series, steps_ahead=3)
 print("Previsões após atualização online:", online_predictions)
+"""
