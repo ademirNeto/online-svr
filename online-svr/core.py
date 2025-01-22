@@ -25,10 +25,18 @@ class DataPreparation:
         self.scaler = None
         
     def calculate_lags(self, df, max_lags=10, significance_level=0.05):
-        partial_autocorr = pacf(df["target"], nlags=max_lags)
+    # Define o número máximo de lags permitidos baseado no tamanho da série
+        max_allowed_lags = min(max_lags, len(df["target"]) // 2 - 1)
+        if max_allowed_lags <= 0:
+            raise ValueError("Insufficient data points to calculate lags. Provide a longer series.")
+
+        # Calcula a PACF
+        partial_autocorr = pacf(df["target"], nlags=max_allowed_lags)
         n = len(df["target"])
         z_alpha = norm.ppf(1 - significance_level / 2)
         conf_interval = z_alpha / np.sqrt(n)
+        
+        # Identifica lags significativos
         self.lags = [i for i, coef in enumerate(partial_autocorr) if abs(coef) > conf_interval and i != 0]
         return self.lags
 
@@ -63,7 +71,7 @@ class PredictionModel:
             'C': [0.1, 1, 10, 100, 1000],
             'gamma': [1e-3, 1e-2, 0.1, 1],
             'epsilon': [0.1, 0.2, 0.5],
-            'kernel': ['linear', 'poli', 'rbf']  
+            'kernel': ['linear', 'poly', 'rbf']  
         }
 
     def train_svr(self, X_train, y_train):
@@ -71,32 +79,40 @@ class PredictionModel:
         grid_search.fit(X_train, y_train)
         self.svr_model = grid_search.best_estimator_
         return self.svr_model
-    
- 
-    def svr_online(self, X_train, y_train, X_val, y_val, serie_name, relevance_threshold=0.1, max_support_vectors=5000):
-     
-        self.svr_model = self.train_svr(X_train, y_train, serie_name=serie_name)
-        y_pred_online = []
-        X_buffer = X_train
-        y_buffer = y_train
 
-        for i in range(len(X_val)):
-            X_new = X_val[i]
-            y_new = y_val.iloc[i]
-            y_pred_atual = self.svr_model.predict([X_new])[0]
-            y_pred_online.append(y_pred_atual)
-            erro = abs(y_new - y_pred_atual)
-            if erro > relevance_threshold:
-                X_buffer = np.vstack([X_buffer, X_new])
-                y_buffer = np.append(y_buffer, y_new)
-                self.svr_model.fit(X_buffer, y_buffer)
-                if len(self.svr_model.support_vectors_) > max_support_vectors:
-                    indices_relevantes = np.argsort(np.abs(self.svr_model.dual_coef_.flatten()))[::-1]
-                    indices_mantidos = indices_relevantes[:max_support_vectors]
-                    X_buffer = self.svr_model.support_vectors_[indices_mantidos]
-                    y_buffer = y_buffer[indices_mantidos]
-        return np.array(y_pred_online)
+    def predict_svr(self, series, steps_ahead):
+        data_preparation = DataPreparation()
+        lags = data_preparation.calculate_lags(series, max_lags=10)
+        X_train, y_train, X_val, _ = data_preparation.prepare_data(
+            series, series, target_column='target', significative_lags=lags
+        )
+        self.train_svr(X_train, y_train)
+        predictions = []
+        last_known_data = X_val[-1] 
+        for _ in range(steps_ahead):
+            pred = self.svr_model.predict([last_known_data])[0]
+            predictions.append(pred)
+            last_known_data = np.roll(last_known_data, -1)  
+            last_known_data[-1] = pred  
 
+        return predictions, self.svr_model
+
+    def predict_svr_online(self, model, y_true, series, steps_ahead):
+
+        data_preparation = DataPreparation()
+        lags = data_preparation.calculate_lags(series, max_lags=10)
+        _, _, X_val, _ = data_preparation.prepare_data(series, series, 'target', lags)
+        online_predictions = []
+        last_known_data = X_val[-1]
+        for i, true_val in enumerate(y_true):
+            model.fit([last_known_data], [true_val])  
+            pred = model.predict([last_known_data])[0]
+            online_predictions.append(pred)
+
+            last_known_data = np.roll(last_known_data, -1)
+            last_known_data[-1] = pred
+
+        return online_predictions
 
     
 
