@@ -1,129 +1,215 @@
+import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
-from statsmodels.graphics.tsaplots import  pacf
-import numpy as np
+from statsmodels.tsa.stattools import pacf
 from scipy.stats import norm
 
 
-class Serie_analisys:
-    def __init__(self, file_path):
-        self.file_path = file_path
-        self.data = None
+class TimeSeriesSplitter:
+    """Loads a CSV time series and splits it into train/validation/test sets.
 
-    def load_and_split(self, test_size=0.2, val_size=0.5):
- 
-        self.data = pd.read_csv(self.file_path, parse_dates=["date"])
-        train_data, temp_data = train_test_split(self.data, test_size=test_size, shuffle=False)  
-        val_data, test_data = train_test_split(temp_data, test_size=val_size, shuffle=False)
+    Parameters
+    ----------
+    test_size : float, default=0.2
+        Fraction reserved for the combined validation+test split.
+    val_size : float, default=0.5
+        Fraction of the temp split assigned to validation.
+    """
 
+    def __init__(self, test_size=0.2, val_size=0.5):
+        self.test_size = test_size
+        self.val_size = val_size
+
+    def split(self, file_path):
+        """Load a CSV and return train, validation and test DataFrames.
+
+        The CSV must contain 'date' and 'target' columns.
+
+        Parameters
+        ----------
+        file_path : str
+
+        Returns
+        -------
+        train_data, val_data, test_data : tuple of pd.DataFrame
+        """
+        data = pd.read_csv(file_path, parse_dates=["date"])
+        train_data, temp_data = train_test_split(
+            data, test_size=self.test_size, shuffle=False
+        )
+        val_data, test_data = train_test_split(
+            temp_data, test_size=self.val_size, shuffle=False
+        )
         return train_data, val_data, test_data
 
-class DataPreparation:
-    def __init__(self):
-        self.scaler = None
-        
-    def calculate_lags(self, df, max_lags=10, significance_level=0.05):
-    # Define o número máximo de lags permitidos baseado no tamanho da série
-        max_allowed_lags = min(max_lags, len(df["target"]) // 2 - 1)
-        if max_allowed_lags <= 0:
-            raise ValueError("Insufficient data points to calculate lags. Provide a longer series.")
 
-        # Calcula a PACF
-        partial_autocorr = pacf(df["target"], nlags=max_allowed_lags)
-        n = len(df["target"])
-        z_alpha = norm.ppf(1 - significance_level / 2)
-        conf_interval = z_alpha / np.sqrt(n)
-        
-        # Identifica lags significativos
-        self.lags = [i for i, coef in enumerate(partial_autocorr) if abs(coef) > conf_interval and i != 0]
-        return self.lags
+class LagTransformer(BaseEstimator, TransformerMixin):
+    """Identifies significant lags via PACF and builds lag feature matrices.
 
-    def prepare_data(self, df_train, df_val, target_column, significative_lags):
-        lags = significative_lags
-        max_lags_validos = len(df_val) - 1  
-        lags = [lag for lag in significative_lags if lag <= max_lags_validos]
+    Parameters
+    ----------
+    max_lags : int, default=10
+        Maximum number of lags to evaluate.
+    significance_level : float, default=0.05
+        Significance level for the PACF confidence interval.
 
-        X_train, y_train = self.create_lags(df_train, target_column, lags)
-        X_val, y_val = self.create_lags(df_val, target_column, lags)
+    Attributes
+    ----------
+    lags_ : list of int
+        Significant lag indices found during fit.
+    """
 
-        self.scaler = StandardScaler()
-        X_train = self.scaler.fit_transform(X_train)
-        X_val = self.scaler.transform(X_val)
+    def __init__(self, max_lags=10, significance_level=0.05):
+        self.max_lags = max_lags
+        self.significance_level = significance_level
 
-        return X_train, y_train, X_val, y_val
+    def fit(self, X, y=None):
+        """Identify statistically significant lags in the time series.
 
-    def create_lags(self, df, target_column, lags):
-        for lag in lags:
-            df[f'{target_column}_lag_{lag}'] = df[target_column].shift(lag)
-        df.dropna(subset=[f'{target_column}_lag_{lag}' for lag in lags], inplace=True)
-        lag_columns = [f'{target_column}_lag_{lag}' for lag in lags]
-        X = df[lag_columns]
-        y = df[target_column]
+        Parameters
+        ----------
+        X : array-like of shape (n_samples,)
+            Univariate time series values.
 
-        return X, y
+        Returns
+        -------
+        self
+        """
+        X = np.asarray(X).ravel()
+        max_allowed = min(self.max_lags, len(X) // 2 - 1)
+        if max_allowed <= 0:
+            raise ValueError("Insufficient data points to calculate lags.")
 
-class PredictionModel:
-    def __init__(self, param_grid=None):
-        self.svr_model = None
+        pacf_values = pacf(X, nlags=max_allowed)
+        z = norm.ppf(1 - self.significance_level / 2)
+        threshold = z / np.sqrt(len(X))
+        self.lags_ = [
+            i for i, coef in enumerate(pacf_values)
+            if abs(coef) > threshold and i != 0
+        ]
+        return self
+
+    def transform(self, X):
+        """Build a lag feature matrix from the time series.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples,)
+            Univariate time series values.
+
+        Returns
+        -------
+        X_lag : ndarray of shape (n_samples - max_lag, n_lags)
+        """
+        X = np.asarray(X).ravel()
+        max_lag = max(self.lags_)
+        features = np.column_stack(
+            [X[max_lag - lag: len(X) - lag] for lag in self.lags_]
+        )
+        return features
+
+
+class SVRForecaster(BaseEstimator):
+    """SVR-based time series forecaster with offline and online learning.
+
+    Parameters
+    ----------
+    param_grid : dict, optional
+        Hyperparameter grid for GridSearchCV. Uses a default grid if None.
+    cv : int, default=5
+        Number of cross-validation folds.
+
+    Attributes
+    ----------
+    estimator_ : SVR
+        Best SVR estimator found by GridSearchCV.
+    scaler_ : StandardScaler
+        Scaler fitted on the training features.
+    """
+
+    def __init__(self, param_grid=None, cv=5):
+        self.cv = cv
         self.param_grid = param_grid or {
-            'C': [0.1, 1, 10, 100, 1000],
-            'gamma': [1e-3, 1e-2, 0.1, 1],
-            'epsilon': [0.1, 0.2, 0.5],
-            'kernel': ['linear', 'poly', 'rbf']  
+            "C": [0.1, 1, 10, 100, 1000],
+            "gamma": [1e-3, 1e-2, 0.1, 1],
+            "epsilon": [0.1, 0.2, 0.5],
+            "kernel": ["linear", "poly", "rbf"],
         }
 
-    def train_svr(self, X_train, y_train):
-        grid_search = GridSearchCV(SVR(), self.param_grid, cv=5)
-        grid_search.fit(X_train, y_train)
-        self.svr_model = grid_search.best_estimator_
-        return self.svr_model
+    def fit(self, X, y):
+        """Fit the SVR model using GridSearchCV.
 
-    def predict_svr(self, series, steps_ahead):
-        data_preparation = DataPreparation()
-        lags = data_preparation.calculate_lags(series, max_lags=10)
-        X_train, y_train, X_val, _ = data_preparation.prepare_data(
-            series, series, target_column='target', significative_lags=lags
-        )
-        self.train_svr(X_train, y_train)
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_lags)
+            Lag feature matrix (e.g. from LagTransformer).
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        self
+        """
+        X, y = np.asarray(X), np.asarray(y).ravel()
+        self.scaler_ = StandardScaler()
+        X_scaled = self.scaler_.fit_transform(X)
+        grid_search = GridSearchCV(SVR(), self.param_grid, cv=self.cv)
+        grid_search.fit(X_scaled, y)
+        self.estimator_ = grid_search.best_estimator_
+        return self
+
+    def predict(self, X, steps=1):
+        """Make multi-step ahead predictions (offline mode).
+
+        Starting from the last row of X, the model recursively predicts
+        `steps` values by feeding each prediction back as a feature.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_lags) or (n_lags,)
+            Feature matrix. Only the last row is used as the initial state.
+        steps : int, default=1
+            Number of steps to forecast ahead.
+
+        Returns
+        -------
+        predictions : ndarray of shape (steps,)
+        """
+        X = np.asarray(X)
+        last = X[-1].copy() if X.ndim > 1 else X.copy()
         predictions = []
-        last_known_data = X_val[-1] 
-        for _ in range(steps_ahead):
-            pred = self.svr_model.predict([last_known_data])[0]
+        for _ in range(steps):
+            last_scaled = self.scaler_.transform([last])[0]
+            pred = self.estimator_.predict([last_scaled])[0]
             predictions.append(pred)
-            last_known_data = np.roll(last_known_data, -1)  
-            last_known_data[-1] = pred  
+            last = np.roll(last, -1)
+            last[-1] = pred
+        return np.array(predictions)
 
-        return predictions, self.svr_model
+    def partial_fit(self, X, y):
+        """Update the model with a new observation (online learning).
 
-    def predict_svr_online(self, model, y_true, series, steps_ahead):
+        Refits the estimator on the provided sample to adapt the model
+        incrementally as new data arrives.
 
-        data_preparation = DataPreparation()
-        lags = data_preparation.calculate_lags(series, max_lags=10)
-        _, _, X_val, _ = data_preparation.prepare_data(series, series, 'target', lags)
-        online_predictions = []
-        last_known_data = X_val[-1]
-        for i, true_val in enumerate(y_true):
-            model.fit([last_known_data], [true_val])  
-            pred = model.predict([last_known_data])[0]
-            online_predictions.append(pred)
+        Parameters
+        ----------
+        X : array-like of shape (1, n_lags) or (n_lags,)
+            Feature vector for the new observation.
+        y : array-like of shape (1,)
+            True target value.
 
-            last_known_data = np.roll(last_known_data, -1)
-            last_known_data[-1] = pred
-
-        return online_predictions
-
-    
-
-
-
-
-
-
-    
-   
-
-
-
-
+        Returns
+        -------
+        self
+        """
+        X = np.asarray(X)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        y = np.asarray(y).ravel()
+        X_scaled = self.scaler_.transform(X)
+        self.estimator_.fit(X_scaled, y)
+        return self

@@ -1,27 +1,36 @@
-import sys
-sys.path.append(r"C:\Users\neton\AppData\Local\Programs\Python\Python311\Lib\site-packages")
-import online_svr
-print("Pacote importado com sucesso!")
+import numpy as np
+from online_svr import LagTransformer, SVRForecaster
 
+# Synthetic trending time series with seasonal component
+np.random.seed(42)
+n = 60
+y = np.array([i * 1.5 + 3 * np.sin(i * 0.4) for i in range(n)])
 
-"""
-from core import PredictionModel
-import pandas as pd
+# 1. Identify significant lags via PACF
+transformer = LagTransformer(max_lags=10, significance_level=0.05)
+transformer.fit(y)
+print("Significant lags:", transformer.lags_)
 
-model = PredictionModel()
+# 2. Build lag feature matrix
+X = transformer.transform(y)
+max_lag = max(transformer.lags_)
+y_aligned = y[max_lag:]
 
-series = pd.DataFrame({
-    'target': [
-        1.1, 2.3, 3.6, 4.8, 6.1, 7.5, 8.9, 10.4, 12.0, 13.7,
-        15.3, 16.9, 18.5, 20.1, 21.8, 23.5, 25.3, 27.1, 28.9, 30.7
-    ]
-})
+# 3. Sequential train/test split
+split = int(len(X) * 0.8)
+X_train, X_test = X[:split], X[split:]
+y_train, y_test = y_aligned[:split], y_aligned[split:]
 
-predictions, trained_model = model.predict_svr(series, steps_ahead=5)
-print("Previsões offline:", predictions)
+# 4. Fit the forecaster
+model = SVRForecaster(cv=3)
+model.fit(X_train, y_train)
+print("Best SVR params:", model.estimator_.get_params())
 
-y_true = pd.Series([31.5, 33.2, 34.8])
+# 5. Offline multi-step prediction (5 steps ahead from last test observation)
+predictions = model.predict(X_test[-1:], steps=5)
+print("Offline predictions (5 steps):", np.round(predictions, 2))
 
-online_predictions = model.predict_svr_online(trained_model, y_true, series, steps_ahead=3)
-print("Previsões após atualização online:", online_predictions)
-"""
+# 6. Online update with a new true observation, then predict again
+model.partial_fit(X_test[-1:], [y_test[-1]])
+updated_pred = model.predict(X_test[-1:], steps=1)
+print("Prediction after online update:", np.round(updated_pred, 2))

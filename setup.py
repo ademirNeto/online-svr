@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name="online-svr",
-    version="0.1.1",
-    description="Uma biblioteca para realizar previsões em SVR com aprendizado online",
+    version="0.2.0",
+    description="A library for making predictions in SVR with online learning",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Ademir Neto",
