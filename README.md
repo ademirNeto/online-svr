@@ -16,6 +16,33 @@ pip install online-svr
 | `SVRForecaster` | SVR estimator with `fit`, `predict`, and `partial_fit` (online learning) |
 | `TimeSeriesSplitter` | Loads a CSV and splits it into train/validation/test sets |
 
+## Input formats accepted by `LagTransformer`
+
+`fit` and `transform` accept the series in any of these forms:
+
+| Input | Behaviour |
+|---|---|
+| 1-D array / list | used directly as the time series values |
+| `pandas.Series` | values extracted in index order |
+| `DataFrame` with **1 column** | that column is used as values |
+| `DataFrame` with **2 columns** (date + value) | date column detected automatically, rows sorted by date, value column extracted |
+| 2-D array shape `(n, 1)` | flattened to 1-D |
+| 2-D array shape `(n, 2)` | column 0 treated as date/index, column 1 as values |
+
+```python
+import pandas as pd
+from online_svr import LagTransformer
+
+# plain array
+transformer.fit([10.2, 11.5, 13.1, 12.8, ...])
+
+# DataFrame with date column (order is inferred from the date)
+df = pd.DataFrame({"date": pd.date_range("2023-01-01", periods=60, freq="D"),
+                   "target": series_values})
+transformer.fit(df)          # sorts by 'date', uses 'target'
+X = transformer.transform(df)
+```
+
 ## Quick Start
 
 ```python
